@@ -34,7 +34,7 @@
         <div class="card-header">
           <h3>Existing Private Chatrooms</h3>
         </div>
-        <button id="refreshRooms" class="btn-secondary mb-2">  Refresh List</button>
+        <button id="refreshRooms" class="btn-secondary mb-2"> Refresh List</button>
         <div id="chatrooms">
           <p class="loading">Loading rooms...</p>
         </div>
@@ -44,7 +44,7 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getDatabase, ref, set, get, onChildAdded } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+    import { getDatabase, ref, set, get, onChildAdded, remove } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
     import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
     const firebaseConfig = {
@@ -127,7 +127,7 @@
                   
                   Object.keys(rooms).forEach(roomName => {
                     if (roomName !== "general") {
-                      addRoomToUI(roomName);
+                      addRoomToUI(roomName, rooms[roomName]);
                       privateRoomCount++;
                     }
                   });
@@ -157,11 +157,11 @@
                 if (noRoomsMsg) {
                   noRoomsMsg.remove();
                 }
-                addRoomToUI(roomName);
+                addRoomToUI(roomName, snapshot.val());
               }
             });
 
-            function addRoomToUI(roomName) {
+            async function addRoomToUI(roomName, roomData) {
               if (roomsLoaded.has(roomName)) return;
               
               roomsLoaded.add(roomName);
@@ -170,13 +170,30 @@
               const roomDiv = document.createElement("div");
               roomDiv.className = "room";
               roomDiv.id = "room-" + roomName;
+              roomDiv.style.display = "block";
               
               const roomTitle = document.createElement("strong");
               roomTitle.textContent = "❇ " + roomName;
               roomDiv.appendChild(roomTitle);
 
+              // NEW FEATURE: Display members
+              if (roomData && roomData.members) {
+                const memberList = document.createElement("div");
+                memberList.className = "member-list";
+                const members = Object.keys(roomData.members);
+                memberList.innerHTML = `<strong>Members (${members.length}):</strong> `;
+                members.forEach(member => {
+                  const memberSpan = document.createElement("span");
+                  memberSpan.className = "member-item";
+                  memberSpan.textContent = member;
+                  memberList.appendChild(memberSpan);
+                });
+                roomDiv.appendChild(memberList);
+              }
+
               const roomActions = document.createElement("div");
               roomActions.className = "room-actions";
+              roomActions.style.marginTop = "0.5rem";
 
               const openBtn = document.createElement("button");
               openBtn.textContent = "Open";
@@ -199,6 +216,7 @@
                       ])
                         .then(() => {
                           alert("Added " + memberUsernameLower + " to " + roomName);
+                          loadRooms(); // Refresh to show updated member list
                         })
                         .catch(error => {
                           alert("Error adding member: " + error.message);
@@ -212,8 +230,47 @@
                 }
               };
 
+              // NEW FEATURE: Delete Room Button
+              const deleteRoomBtn = document.createElement("button");
+              deleteRoomBtn.className = "btn-danger";
+              deleteRoomBtn.textContent = "Delete Room";
+              deleteRoomBtn.onclick = async () => {
+                if (confirm(`Are you sure you want to delete the room "${roomName}"? This will remove all messages and member associations.`)) {
+                  try {
+                    // Get all members first
+                    const membersSnap = await get(ref(db, "chatrooms/" + roomName + "/members"));
+                    const deletePromises = [
+                      remove(ref(db, "chatrooms/" + roomName))
+                    ];
+
+                    // Remove from each member's userMemberships
+                    if (membersSnap.exists()) {
+                      const members = Object.keys(membersSnap.val());
+                      members.forEach(member => {
+                        deletePromises.push(
+                          remove(ref(db, "userMemberships/" + member + "/" + roomName))
+                        );
+                      });
+                    }
+
+                    await Promise.all(deletePromises);
+                    alert("Room '" + roomName + "' deleted successfully");
+                    roomDiv.remove();
+                    roomsLoaded.delete(roomName);
+                    
+                    // Check if no rooms left
+                    if (roomsLoaded.size === 0) {
+                      roomsDiv.innerHTML = '<p class="no-content">No private chatrooms yet. Create one above!</p>';
+                    }
+                  } catch (error) {
+                    alert("Error deleting room: " + error.message);
+                  }
+                }
+              };
+
               roomActions.appendChild(openBtn);
               roomActions.appendChild(addMemberBtn);
+              roomActions.appendChild(deleteRoomBtn);
               roomDiv.appendChild(roomActions);
               roomsDiv.appendChild(roomDiv);
             }
@@ -238,12 +295,10 @@
   const themeText = document.getElementById('themeText');
   const htmlElement = document.documentElement;
 
-  // Load saved theme or default to dark
   const currentTheme = localStorage.getItem('theme') || 'dark';
   htmlElement.setAttribute('data-theme', currentTheme);
   updateThemeUI(currentTheme);
 
-  // Toggle theme on button click
   themeToggle.addEventListener('click', () => {
     const newTheme = htmlElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
     htmlElement.setAttribute('data-theme', newTheme);
@@ -251,7 +306,6 @@
     updateThemeUI(newTheme);
   });
 
-  // Update UI elements
   function updateThemeUI(theme) {
     if (theme === 'light') {
       themeIcon.textContent = '☾';

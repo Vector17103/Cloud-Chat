@@ -23,8 +23,12 @@
 
       <!-- Message Input -->
       <div class="message-input-container">
-        <input id="message" type="text" placeholder="Type your message...">
+        <textarea id="message" placeholder="Type your message... (Shift+Enter for new line)" rows="2"></textarea>
+        <button class="emoji-picker-btn" id="emojiBtn">😊</button>
         <button id="send">Send</button>
+        <div class="emoji-picker" id="emojiPicker">
+          <div class="emoji-grid" id="emojiGrid"></div>
+        </div>
       </div>
 
       <!-- Main Controls -->
@@ -43,7 +47,7 @@
 
       <!-- Private Rooms List -->
       <div id="myRooms">
-        <h3> Private Chatrooms</h3>
+        <h3>Private Chatrooms</h3>
         <div id="roomsList">
           <p class="loading">Loading your rooms...</p>
         </div>
@@ -126,9 +130,31 @@
             const msgContent = document.createElement("div");
             msgContent.className = "msg-content";
             msgContent.textContent = msgData.user + ": " + msgData.text;
+            
+            // NEW: Show edited indicator
+            if (msgData.edited) {
+              const editedSpan = document.createElement("span");
+              editedSpan.className = "msg-edited-indicator";
+              editedSpan.textContent = "(edited)";
+              msgContent.appendChild(editedSpan);
+            }
+            
             msgElement.appendChild(msgContent);
 
-            // Add delete button for admins
+            // NEW: Message actions
+            const msgActions = document.createElement("div");
+            msgActions.className = "msg-actions";
+
+            // Edit button for own messages
+            if (msgData.user === username) {
+              const editBtn = document.createElement("button");
+              editBtn.className = "btn-small btn-edit";
+              editBtn.textContent = "Edit";
+              editBtn.onclick = () => editMessage(msgId, msgData.text, msgData.user);
+              msgActions.appendChild(editBtn);
+            }
+
+            // Delete button for admins
             if (window.currentRole === "admin") {
               const delBtn = document.createElement("button");
               delBtn.className = "btn-small btn-danger";
@@ -141,7 +167,11 @@
                   alert("Error deleting message: " + error.message);
                 });
               };
-              msgElement.appendChild(delBtn);
+              msgActions.appendChild(delBtn);
+            }
+
+            if (msgActions.children.length > 0) {
+              msgElement.appendChild(msgActions);
             }
 
             chatDiv.appendChild(msgElement);
@@ -169,12 +199,14 @@
           }
         };
 
-        // Allow Enter key to send message
-        document.getElementById("message").onkeypress = (e) => {
-          if (e.key === "Enter") {
+        // NEW: Handle Enter key (send) and Shift+Enter (new line)
+        const messageTextarea = document.getElementById("message");
+        messageTextarea.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
             document.getElementById("send").click();
           }
-        };
+        });
 
         // Logout
         document.getElementById("logout").onclick = () => {
@@ -182,6 +214,103 @@
             window.location.href = "login.html";
           });
         };
+
+        // NEW FEATURE: Emoji picker functionality
+        const emojiBtn = document.getElementById('emojiBtn');
+        const emojiPicker = document.getElementById('emojiPicker');
+        const emojiGrid = document.getElementById('emojiGrid');
+
+        // Common emojis
+        const emojis = ['😀','😃','😄','😁','😅','😂','🤣','😊','😇','🙂','🙃','😉','😌','😍','🥰','😘','😗','😙','😚','😋','😛','😝','😜','🤪','🤨','🧐','🤓','😎','🤩','🥳','😏','😒','😞','😔','😟','😕','🙁','☹️','😣','😖','😫','😩','🥺','😢','😭','😤','😠','😡','🤬','🤯','😳','🥵','🥶','😱','😨','😰','😥','😓','🤗','🤔','🤭','🤫','🤥','😶','😐','😑','😬','🙄','😯','😦','😧','😮','😲','🥱','😴','🤤','😪','😵','🤐','🥴','🤢','🤮','🤧','😷','🤒','🤕','🤑','🤠','👍','👎','👌','✌️','🤞','🤟','🤘','🤙','👈','👉','👆','👇','☝️','✋','🤚','🖐','🖖','👋','🤝','💪','🙏','❤️','💕','💖','💗','💙','💚','💛','🧡','💜','🖤','💔','❣️','💞','💝','💘','💗','✨','⭐','🌟','💫','⚡','🔥','💥','💯','🎉','🎊','🎈','🎁','🏆','🥇','🥈','🥉'];
+
+        // Populate emoji grid
+        emojis.forEach(emoji => {
+          const emojiItem = document.createElement('span');
+          emojiItem.className = 'emoji-item';
+          emojiItem.textContent = emoji;
+          emojiItem.onclick = () => insertEmoji(emoji);
+          emojiGrid.appendChild(emojiItem);
+        });
+
+        // Toggle emoji picker
+        emojiBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          emojiPicker.classList.toggle('show');
+        });
+
+        // Close emoji picker when clicking outside
+        document.addEventListener('click', (e) => {
+          if (!emojiPicker.contains(e.target) && e.target !== emojiBtn) {
+            emojiPicker.classList.remove('show');
+          }
+        });
+
+        // Insert emoji at cursor position
+        function insertEmoji(emoji) {
+          const start = messageTextarea.selectionStart;
+          const end = messageTextarea.selectionEnd;
+          const text = messageTextarea.value;
+          messageTextarea.value = text.substring(0, start) + emoji + text.substring(end);
+          messageTextarea.selectionStart = messageTextarea.selectionEnd = start + emoji.length;
+          messageTextarea.focus();
+          emojiPicker.classList.remove('show');
+        }
+
+        // NEW FEATURE: Edit message function
+        function editMessage(msgId, currentText, msgUser) {
+          const msgElement = document.getElementById("msg-" + msgId);
+          if (!msgElement) return;
+
+          const originalContent = msgElement.innerHTML;
+          msgElement.innerHTML = '';
+          msgElement.classList.add('editing');
+
+          const editTextarea = document.createElement("textarea");
+          editTextarea.className = "msg-edit-input";
+          editTextarea.value = currentText;
+          editTextarea.rows = 3;
+          msgElement.appendChild(editTextarea);
+
+          const editActions = document.createElement("div");
+          editActions.className = "msg-edit-actions";
+
+          const saveBtn = document.createElement("button");
+          saveBtn.className = "btn-small";
+          saveBtn.textContent = "Save";
+          saveBtn.onclick = () => {
+            const newText = editTextarea.value.trim();
+            if (newText && newText !== currentText) {
+              set(ref(db, "chatrooms/general/messages/" + msgId), {
+                user: msgUser,
+                text: newText,
+                timestamp: Date.now(),
+                edited: true,
+                editedAt: Date.now()
+              }).then(() => {
+                location.reload();
+              }).catch(error => {
+                alert("Error updating message: " + error.message);
+                msgElement.innerHTML = originalContent;
+              });
+            } else {
+              msgElement.innerHTML = originalContent;
+              msgElement.classList.remove('editing');
+            }
+          };
+
+          const cancelBtn = document.createElement("button");
+          cancelBtn.className = "btn-small btn-secondary";
+          cancelBtn.textContent = "Cancel";
+          cancelBtn.onclick = () => {
+            msgElement.innerHTML = originalContent;
+            msgElement.classList.remove('editing');
+          };
+
+          editActions.appendChild(saveBtn);
+          editActions.appendChild(cancelBtn);
+          msgElement.appendChild(editActions);
+          editTextarea.focus();
+        }
       } else {
         window.location.href = "login.html";
       }
@@ -201,7 +330,7 @@
             if (roomName !== "general") {
               const roomLink = document.createElement("div");
               roomLink.className = "room-link";
-              roomLink.textContent = " ❇  " + roomName;
+              roomLink.textContent = " ❇ " + roomName;
               roomLink.onclick = () => {
                 window.location.href = "chatroom.html?room=" + roomName;
               };
@@ -237,7 +366,7 @@
             if (memberRooms[roomName] === true) {
               const roomLink = document.createElement("div");
               roomLink.className = "room-link";
-              roomLink.textContent = " ❇  " + roomName;
+              roomLink.textContent = " ❇ " + roomName;
               roomLink.onclick = () => {
                 window.location.href = "chatroom.html?room=" + roomName;
               };
@@ -265,12 +394,10 @@
   const themeText = document.getElementById('themeText');
   const htmlElement = document.documentElement;
 
-  // Load saved theme or default to dark
   const currentTheme = localStorage.getItem('theme') || 'dark';
   htmlElement.setAttribute('data-theme', currentTheme);
   updateThemeUI(currentTheme);
 
-  // Toggle theme on button click
   themeToggle.addEventListener('click', () => {
     const newTheme = htmlElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
     htmlElement.setAttribute('data-theme', newTheme);
@@ -278,7 +405,6 @@
     updateThemeUI(newTheme);
   });
 
-  // Update UI elements
   function updateThemeUI(theme) {
     if (theme === 'light') {
       themeIcon.textContent = '☾';
